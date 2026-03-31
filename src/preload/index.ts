@@ -49,10 +49,20 @@ const api = {
   restoreDatabase: (backupFilePath: string) =>
     ipcRenderer.invoke('restore-database', backupFilePath),
   deleteBackup: (backupFilePath: string) => ipcRenderer.invoke('delete-backup', backupFilePath),
+  getAutoBackupConfig: () => ipcRenderer.invoke('get-auto-backup-config'),
+  saveAutoBackupConfig: (config: { enabled: boolean, interval: number, retainDays: number }) =>
+    ipcRenderer.invoke('save-auto-backup-config', config),
+  cleanupOldBackups: (retainDays: number) => ipcRenderer.invoke('cleanup-old-backups', retainDays),
 
   // 通知功能
   showNotification: (options: any) => ipcRenderer.invoke('show-notification', options),
   showToast: (options: any) => ipcRenderer.invoke('show-toast', options),
+
+  // 系统设置
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
+  getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
+  setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
 
   // 应用控制
   close: () => ipcRenderer.invoke('app-close'),

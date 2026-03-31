@@ -72,6 +72,9 @@ declare global {
       deleteBackup: (
         backupFilePath: string
       ) => Promise<{ success: boolean; data?: any; error?: string }>
+      getAutoBackupConfig: () => Promise<{ success: boolean; data?: { enabled: boolean; interval: number; retainDays: number }; error?: string }>
+      saveAutoBackupConfig: (config: { enabled: boolean; interval: number; retainDays: number }) => Promise<{ success: boolean; data?: any; error?: string }>
+      cleanupOldBackups: (retainDays: number) => Promise<{ success: boolean; data?: { deleted: number }; error?: string }>
 
       // 通知功能
       showNotification: (options: {
@@ -86,6 +89,12 @@ declare global {
         type?: 'success' | 'error' | 'warning' | 'info'
         duration?: number
       }) => Promise<{ success: boolean; error?: string }>
+
+      // 系统设置
+      getSettings: () => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
+      saveSettings: (settings: Record<string, string>) => Promise<{ success: boolean; error?: string }>
+      getSetting: (key: string) => Promise<{ success: boolean; data?: string; error?: string }>
+      setSetting: (key: string, value: string) => Promise<{ success: boolean; error?: string }>
 
       // 应用控制
       app: {

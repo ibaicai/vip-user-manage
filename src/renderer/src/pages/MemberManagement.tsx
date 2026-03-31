@@ -18,7 +18,9 @@ import {
   SearchOutlined,
   EditOutlined,
   DeleteOutlined,
-  AlipayCircleOutlined
+  AlipayCircleOutlined,
+  WalletOutlined,
+  ShoppingOutlined
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { toast } from '../components/Toast'
@@ -63,6 +65,19 @@ const MemberManagement: React.FC = () => {
   const [editingMember, setEditingMember] = useState<Member | null>(null)
   const [form] = Form.useForm()
   const [searchForm] = Form.useForm()
+
+  // 跳转到充值页面
+  const handleQuickRecharge = (member: Member) => {
+    window.history.pushState({}, '', `/recharge?memberId=${member.id}`)
+    // 触发自定义事件通知App更新内容
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
+
+  // 跳转到消费页面
+  const handleQuickConsumption = (member: Member) => {
+    window.history.pushState({}, '', `/consumption?memberId=${member.id}`)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
 
   useEffect(() => {
     loadMembers() 
@@ -224,6 +239,13 @@ const MemberManagement: React.FC = () => {
       render: (balance: number) => `¥${balance.toFixed(2)}`
     },
     {
+      title: '剪发次数',
+      dataIndex: 'basic_haircut_count',
+      key: 'basic_haircut_count',
+      width: 100,
+      render: (count: number) => count || 0
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -253,18 +275,24 @@ const MemberManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 300,
+      width: 380,
       render: (_, record: Member) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
+          </Button>
+          <Button type="link" icon={<WalletOutlined />} onClick={() => handleQuickRecharge(record)}>
+            充值
+          </Button>
+          <Button type="link" icon={<ShoppingOutlined />} onClick={() => handleQuickConsumption(record)}>
+            消费
           </Button>
           <Button
             type="link"
             icon={<AlipayCircleOutlined />}
             onClick={() => getMemberTransactions(record)}
           >
-            消费记录
+            交易记录
           </Button>
           <Popconfirm
             title="确定要删除这个会员吗？"
@@ -291,52 +319,91 @@ const MemberManagement: React.FC = () => {
       title: '交易类型',
       dataIndex: 'transaction_type',
       key: 'transaction_type',
-      width: 100
+      width: 80,
+      render: (type: string) => {
+        const isRecharge = type === '充值'
+        return (
+          <span style={{
+            color: isRecharge ? '#52c41a' : '#fa8c16',
+            fontWeight: 600,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            backgroundColor: isRecharge ? '#f6ffed' : '#fff7e6',
+            border: `1px solid ${isRecharge ? '#b7eb8f' : '#ffd591'}`
+          }}>
+            {type}
+          </span>
+        )
+      }
+    },
+    {
+      title: '扣费方式',
+      dataIndex: 'payment_type',
+      key: 'payment_type',
+      width: 100,
+      render: (type: string) => {
+        if (type === 'haircut') return '抵扣剪发次数'
+        if (type === 'money') return '抵扣余额'
+        return type || '-'
+      }
+    },
+    {
+      title: '抵扣次数',
+      dataIndex: 'haircut_count_after',
+      key: 'haircut_count_after',
+      width: 100,
+      render: (count: number, record: any) => {
+        if (record.payment_type === 'haircut') {
+          return `${count - (record.haircut_count_before || 0)}次`
+        }
+        return '-'
+      }
     },
     {
       title: '消费前余额',
       dataIndex: 'balance_before',
       key: 'balance_before',
-      width: 120,
-      render: (balance: number) => `¥${balance.toFixed(2)}`
+      width: 100,
+      render: (balance: number) => balance != null ? `¥${balance.toFixed(2)}` : '-'
     },
     {
       title: '变动金额',
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
-      render: (balance: number) => `¥${balance.toFixed(2)}`
+      width: 100,
+      render: (amount: number) => amount != null ? `¥${amount.toFixed(2)}` : '-'
     },
     {
       title: '消费后余额',
       dataIndex: 'balance_after',
       key: 'balance_after',
-      width: 120,
+      width: 100,
       className:'balance-after',
-      render: (balance: number) => `¥${balance.toFixed(2)}`
+      render: (balance: number) => balance != null ? `¥${balance.toFixed(2)}` : '-'
     },
     {
       title: '消费时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180
+      width: 160
     },
     {
       title: '服务类型',
       dataIndex: 'service_name',
       key: 'service_name',
-      width: 120
+      width: 100
     },
     {
       title: '操作员',
       dataIndex: 'operator_name',
       key: 'operator_name',
-      width: 120
+      width: 80
     },
     {
       title: '备注',
       dataIndex: 'remark',
       key: 'remark',
+      width: 150,
       ellipsis: true
     }
   ]
@@ -485,11 +552,11 @@ const MemberManagement: React.FC = () => {
         </Form>
       </Modal>
       <Modal
-        title={'消费记录'}
+        title={'交易记录'}
         open={consumptionModalVisible}
         onOk={handleSubmit}
         onCancel={() => setConsumptionModalVisible(false)}
-        width={800}
+        width={1100}
         destroyOnClose
       >
         <Table

@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: order
+productName: BraveTroop
 directories:
   buildResources: build
 files:
@@ -11,8 +11,9 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  - node_modules/sql.js/dist/**/*
 win:
-  executableName: order
+  executableName: BraveTroop
   icon: resources/lixp.png
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
@@ -20,14 +21,15 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  executableName: BraveTroop
   icon: resources/lixp.png
   entitlementsInherit: build/entitlements.mac.plist
+  minimumSystemVersion: "10.15"
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:

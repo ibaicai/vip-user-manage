@@ -1,4 +1,4 @@
-import electronLogo from '../assets/electron.svg'
+import electronLogo from '../assets/images/icon.png'
 import close from '../assets/images/close.png'
 import maximize from '../assets/images/maximize.png'
 import minimize from '../assets/images/minimize.png'
@@ -18,6 +18,7 @@ function AppHeader(): React.JSX.Element {
     <div className="app-header">
       <div className="app-header-left">
         <img className="app-header-logo" src={electronLogo} alt="logo" />
+        <span className="app-header-title">貔貅会员管理系统</span>
       </div>
       <div className="app-header-right">
         <div onClick={minimizeFn} className="app-header-right-item">

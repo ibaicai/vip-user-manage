@@ -11,6 +11,7 @@ interface Member {
   phone: string
   level: string
   balance: number
+  basic_haircut_count: number
   status: string
 }
 
@@ -48,6 +49,9 @@ const Consumption: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [form] = Form.useForm()
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [defaultOperatorId, setDefaultOperatorId] = useState<number | null>(null)
+  const [currentPaymentType, setCurrentPaymentType] = useState<string>('haircut')
+  const [currentHaircutCount, setCurrentHaircutCount] = useState<number>(1)
 
   useEffect(() => {
     loadData()
@@ -63,7 +67,19 @@ const Consumption: React.FC = () => {
       ])
 
       if (membersResult.success && membersResult.data) {
-        setMembers(membersResult.data.filter((m: Member) => m.status === '正常'))
+        const filteredMembers = membersResult.data.filter((m: Member) => m.status === '正常')
+        setMembers(filteredMembers)
+
+        // 检查 URL 参数，自动选中会员
+        const params = new URLSearchParams(window.location.search)
+        const memberId = params.get('memberId')
+        if (memberId) {
+          const member = filteredMembers.find((m: Member) => m.id === Number(memberId))
+          if (member) {
+            setSelectedMember(member)
+            form.setFieldsValue({ memberId: member.id })
+          }
+        }
       }
 
       if (servicesResult.success && servicesResult.data) {
@@ -72,6 +88,12 @@ const Consumption: React.FC = () => {
 
       if (employeesResult.success && employeesResult.data) {
         setEmployees(employeesResult.data)
+        // 默认选择第一个员工
+        if (employeesResult.data.length > 0) {
+          const defaultId = employeesResult.data[0].id
+          setDefaultOperatorId(defaultId)
+          form.setFieldsValue({ operator: defaultId })
+        }
       }
     } catch (error) {
       console.error('加载数据失败:', error)
@@ -84,7 +106,7 @@ const Consumption: React.FC = () => {
   const handleMemberChange = (memberId: number) => {
     const member = members.find((m) => m.id === memberId)
     setSelectedMember(member || null)
-    form.setFieldsValue({ serviceId: undefined, amount: undefined, operator: undefined })
+    form.setFieldsValue({ serviceId: undefined, amount: undefined })
     setSelectedService(null)
   }
 
@@ -114,16 +136,31 @@ const Consumption: React.FC = () => {
       }
 
       const price = calculatePrice()
-      if (selectedMember.balance < price) {
-        toast.error('会员余额不足')
-        return
+      const paymentType = values.paymentType || 'haircut'
+      const haircutCountToDeduct = values.haircutCount || 1
+
+      // 检查余额或基础剪发次数
+      if (paymentType === 'money') {
+        if (selectedMember.balance < price) {
+          toast.error('会员余额不足')
+          return
+        }
+      } else {
+        // 抵扣基础剪发次数
+        const haircutCount = selectedMember.basic_haircut_count || 0
+        if (haircutCount < haircutCountToDeduct) {
+          toast.error('基础剪发次数不足')
+          return
+        }
       }
 
       setLoading(true)
       const result = await window.electronAPI.createTransaction({
         memberId: selectedMember.id,
         serviceId: selectedService.id,
-        amount: price,
+        amount: paymentType === 'money' ? price : 0,
+        paymentType: paymentType,
+        haircutCountToDeduct: paymentType === 'haircut' ? haircutCountToDeduct : 0,
         remark: values.remark || '',
         operatorId: values.operator
       })
@@ -131,6 +168,7 @@ const Consumption: React.FC = () => {
       if (result.success) {
         toast.success('消费扣费成功')
         form.resetFields()
+        form.setFieldsValue({ paymentType: 'haircut', haircutCount: 1, operator: defaultOperatorId })
         setSelectedMember(null)
         setSelectedService(null)
         loadData() // 重新加载数据以更新余额和交易记录
@@ -193,16 +231,66 @@ const Consumption: React.FC = () => {
                 >
                   {members.map((member) => (
                     <Option key={member.id} value={member.id}>
-                      {member.name} ({member.phone}) - 余额: ¥{member.balance.toFixed(2)}
+                      {member.name} ({member.phone}) - 余额: ¥{member.balance.toFixed(2)} - 剪发: {member.basic_haircut_count || 0}次
                     </Option>
                   ))}
                 </Select>
               </Form.Item>
 
               <Form.Item
+                name="paymentType"
+                label="扣费方式"
+                initialValue="haircut"
+              >
+                <Select onChange={(value) => {
+                  setCurrentPaymentType(value)
+                  if (value === 'haircut') {
+                    form.setFieldsValue({ amount: undefined })
+                  } else if (selectedService) {
+                    form.setFieldsValue({ amount: calculatePrice(), haircutCount: 1 })
+                  } else {
+                    form.setFieldsValue({ haircutCount: 1 })
+                  }
+                }}>
+                  <Option value="money">抵扣账户余额</Option>
+                  <Option value="haircut">抵扣基础剪发次数</Option>
+                </Select>
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, curr) => prev.paymentType !== curr.paymentType}
+              >
+                {() => {
+                  const paymentType = form.getFieldValue('paymentType')
+                  if (paymentType === 'haircut') {
+                    return (
+                      <Form.Item
+                        name="haircutCount"
+                        label="抵扣次数"
+                        initialValue={1}
+                      >
+                        <InputNumber
+                          placeholder="请输入抵扣次数"
+                          min={1}
+                          precision={0}
+                          defaultValue={1}
+                          style={{ width: '100%' }}
+                          addonAfter="次"
+                          onChange={(value) => setCurrentHaircutCount(value || 1)}
+                        />
+                      </Form.Item>
+                    )
+                  }
+                  return null
+                }}
+              </Form.Item>
+
+              <Form.Item
                 name="serviceId"
                 label="选择服务项目"
-                rules={[{ required: true, message: '请选择服务项目' }]}
+                rules={[{ required: true, message: '请选择服务项目' }]
+              }
               >
                 <Select
                   placeholder="请选择服务项目"
@@ -220,18 +308,31 @@ const Consumption: React.FC = () => {
               </Form.Item>
 
               <Form.Item
-                name="amount"
-                label="消费金额"
-                rules={[{ required: true, message: '请输入消费金额' }]}
+                noStyle
+                shouldUpdate={(prev, curr) => prev.paymentType !== curr.paymentType}
               >
-                <InputNumber
-                  placeholder="请输入消费金额"
-                  min={0}
-                  precision={2}
-                  style={{ width: '100%' }}
-                  addonAfter="元"
-                  disabled={!selectedService}
-                />
+                {() => {
+                  const paymentType = form.getFieldValue('paymentType')
+                  if (paymentType === 'money') {
+                    return (
+                      <Form.Item
+                        name="amount"
+                        label="消费金额"
+                        rules={[{ required: true, message: '请输入消费金额' }]}
+                      >
+                        <InputNumber
+                          placeholder="请输入消费金额"
+                          min={0}
+                          precision={2}
+                          style={{ width: '100%' }}
+                          addonAfter="元"
+                          disabled={!selectedService}
+                        />
+                      </Form.Item>
+                    )
+                  }
+                  return null
+                }}
               </Form.Item>
 
               <Form.Item name="remark" label="备注">
@@ -324,8 +425,14 @@ const Consumption: React.FC = () => {
                   <div>
                     <p>会员：{selectedMember.name}</p>
                     <p>服务：{selectedService.name}</p>
-                    <p>金额：¥{getServicePrice().toFixed(2)}</p>
-                    <p>扣费后余额：¥{(selectedMember.balance - getServicePrice()).toFixed(2)}</p>
+                    {currentPaymentType === 'money' ? (
+                      <>
+                        <p>金额：¥{getServicePrice().toFixed(2)}</p>
+                        <p>扣费后余额：¥{(selectedMember.balance - getServicePrice()).toFixed(2)}</p>
+                      </>
+                    ) : (
+                      <p>抵扣次数：{currentHaircutCount}次（剩余：{selectedMember.basic_haircut_count - currentHaircutCount}次）</p>
+                    )}
                   </div>
                 }
                 type="info"

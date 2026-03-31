@@ -5,6 +5,89 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerWebHandles } from './handles'
 import { dbManager } from './database'
 
+let handlesRegistered = false
+let autoBackupTimer: NodeJS.Timeout | null = null
+
+// 执行自动备份
+async function performAutoBackup(): Promise<void> {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const userDataPath = app.getPath('userData')
+    const dbPath = path.join(userDataPath, 'barbershop.db')
+    const backupDir = path.join(userDataPath, 'backups')
+
+    // 获取保留天数
+    const retainDays = parseInt(await dbManager.getSetting('autoBackupRetainDays') || '30')
+
+    // 创建备份目录
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true })
+    }
+
+    // 生成备份文件名
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const backupFileName = `barbershop_auto_backup_${timestamp}.db`
+    const backupPath = path.join(backupDir, backupFileName)
+
+    // 复制数据库文件
+    fs.copyFileSync(dbPath, backupPath)
+    console.log(`[自动备份] 备份成功: ${backupFileName}`)
+
+    // 清理过期备份
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - retainDays)
+
+    const files = fs.readdirSync(backupDir).filter((file: string) => file.startsWith('barbershop_auto_backup_') && file.endsWith('.db'))
+    let deletedCount = 0
+
+    for (const file of files) {
+      const filePath = path.join(backupDir, file)
+      const stats = fs.statSync(filePath)
+      if (new Date(stats.mtime) < cutoffDate) {
+        fs.unlinkSync(filePath)
+        deletedCount++
+      }
+    }
+
+    if (deletedCount > 0) {
+      console.log(`[自动备份] 清理过期备份: ${deletedCount}个`)
+    }
+  } catch (error) {
+    console.error('[自动备份] 备份失败:', error)
+  }
+}
+
+// 启动/重启自动备份定时器
+export async function setupAutoBackup(): Promise<void> {
+  // 清除现有定时器
+  if (autoBackupTimer) {
+    clearInterval(autoBackupTimer)
+    autoBackupTimer = null
+  }
+
+  try {
+    const enabled = await dbManager.getSetting('autoBackupEnabled')
+    if (enabled !== 'true') {
+      console.log('[自动备份] 未启用')
+      return
+    }
+
+    const intervalMinutes = parseInt(await dbManager.getSetting('autoBackupInterval') || '30')
+    const intervalMs = intervalMinutes * 60 * 1000
+
+    console.log(`[自动备份] 已启用，间隔: ${intervalMinutes}分钟`)
+
+    // 立即执行一次备份
+    performAutoBackup()
+
+    // 设置定时器
+    autoBackupTimer = setInterval(performAutoBackup, intervalMs)
+  } catch (error) {
+    console.error('[自动备份] 设置失败:', error)
+  }
+}
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -16,7 +99,7 @@ function createWindow(): void {
     frame: true,
     autoHideMenuBar: true,
     title: '貔貅会员消费管理系统',
-    icon: join(__dirname, '../../resources/lixp.jpg'), // 统一设置icon
+    icon: join(__dirname, '../../resources/lixp.png'), // 统一设置icon
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -33,8 +116,12 @@ function createWindow(): void {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
-  
-  registerWebHandles()
+
+  // 只注册一次 IPC 处理器
+  if (!handlesRegistered) {
+    registerWebHandles()
+    handlesRegistered = true
+  }
 
   // 1. 先加载loading页面
   const loadingPath = join(__dirname, '../renderer/loading.html')
@@ -64,6 +151,8 @@ app.whenReady().then(async () => {
   try {
     await dbManager.initialize()
     console.log('数据库初始化成功')
+    // 启动自动备份
+    await setupAutoBackup()
   } catch (error) {
     console.error('数据库初始化失败:', error)
   }

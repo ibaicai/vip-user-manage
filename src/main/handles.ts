@@ -2,11 +2,41 @@ import { ipcMain } from 'electron'
 import { dbManager } from './database'
 import { shell } from 'electron'
 import path from 'path'
+import { setupAutoBackup } from './index'
 
 /**
  * 注册所有IPC处理器
  */
+let handlersRegistered = false
 export function registerWebHandles(): void {
+  // 防止重复注册
+  if (handlersRegistered) {
+    return
+  }
+  handlersRegistered = true
+
+  // 移除所有已注册的 handler，避免重复注册
+  const channels = [
+    'get-members', 'get-members-by-searchform', 'get-member-by-id', 'get-member-by-phone', 'add-member', 'update-member', 'delete-member', 'get-member-transactions',
+    'get-services', 'add-service', 'update-service', 'delete-service',
+    'get-transactions', 'create-transaction',
+    'get-recharges', 'create-recharge',
+    'get-statistics', 'get-employee-commissions-report',
+    'backup-database', 'get-backup-files', 'restore-database', 'delete-backup', 'open-data-directory',
+    'get-auto-backup-config', 'save-auto-backup-config', 'cleanup-old-backups',
+    'show-notification', 'show-toast',
+    'get-settings', 'save-settings', 'get-setting', 'set-setting',
+    'get-employees', 'add-employee', 'update-employee', 'delete-employee',
+    'get-project-commissions', 'get-all-project-commissions', 'set-project-commission'
+  ]
+  for (const channel of channels) {
+    try {
+      ipcMain.removeHandler(channel)
+    } catch (e) {
+      // 忽略移除错误
+    }
+  }
+
   // 会员管理相关
   registerMemberHandles()
 
@@ -30,6 +60,9 @@ export function registerWebHandles(): void {
 
   // 员工管理相关
   registerEmployeeHandles()
+
+  // 系统设置相关
+  registerSettingHandles()
 }
 
 /**
@@ -162,37 +195,38 @@ function registerMemberHandles(): void {
       return { success: false, error: (error as Error).message }
     }
   })
-}
-// 获取会员消费记录
-ipcMain.handle('get-member-transactions', async (_, memberId: number) => {
-  try {
-    const query = `
-      SELECT 
-        t.*,
-        s.name as service_name,
-        s.price as service_price,
-        m.name as member_name,
-        e.name as operator_name
-      FROM 
-        transactions t
-      LEFT JOIN 
-        services s ON t.service_id = s.id
-      JOIN 
-        members m ON t.member_id = m.id
-      LEFT JOIN
-        employees e ON t.operator_id = e.id
-      WHERE 
-        t.member_id = ?
-      ORDER BY 
-        t.created_at DESC
-    `
 
-    const transactions = await dbManager.all(query, [memberId])
-    return { success: true, data: transactions }
-  } catch (error: any) {
-    return { success: false, error: (error as Error).message }
-  }
-})
+  // 获取会员消费记录
+  ipcMain.handle('get-member-transactions', async (_, memberId: number) => {
+    try {
+      const query = `
+        SELECT
+          t.*,
+          s.name as service_name,
+          s.price as service_price,
+          m.name as member_name,
+          e.name as operator_name
+        FROM
+          transactions t
+        LEFT JOIN
+          services s ON t.service_id = s.id
+        JOIN
+          members m ON t.member_id = m.id
+        LEFT JOIN
+          employees e ON t.operator_id = e.id
+        WHERE
+          t.member_id = ?
+        ORDER BY
+          t.created_at DESC
+      `
+
+      const transactions = await dbManager.all(query, [memberId])
+      return { success: true, data: transactions }
+    } catch (error: any) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+}
 
 /**
  * 服务项目管理IPC处理器
@@ -304,67 +338,92 @@ function registerTransactionHandles(): void {
   // 创建消费记录
   ipcMain.handle('create-transaction', async (_, transactionData: any) => {
     try {
-      // 开始事务
-      await dbManager.run('BEGIN TRANSACTION')
-
-      // 获取会员当前余额
-      const member = await dbManager.get('SELECT balance FROM members WHERE id = ?', [
+      // 获取会员当前余额和基础剪发次数
+      const member = await dbManager.get('SELECT balance, basic_haircut_count FROM members WHERE id = ?', [
         transactionData.memberId
       ])
       if (!member) {
         throw new Error('会员不存在')
       }
 
-      const balanceBefore = member.balance
-      const balanceAfter = balanceBefore - transactionData.amount
+      const balanceBefore = member.balance || 0
+      const haircutCountBefore = member.basic_haircut_count || 0
+      const paymentType = transactionData.paymentType || 'money'
 
-      if (balanceAfter < 0) {
-        throw new Error('余额不足')
+      let balanceAfter = balanceBefore
+      let haircutCountAfter = haircutCountBefore
+      let haircutCountToDeduct = 0
+
+      if (paymentType === 'money') {
+        // 账户余额扣费
+        balanceAfter = balanceBefore - transactionData.amount
+        if (balanceAfter < 0) {
+          throw new Error('余额不足')
+        }
+        await dbManager.run('UPDATE members SET balance = ? WHERE id = ?', [
+          balanceAfter,
+          transactionData.memberId
+        ])
+      } else if (paymentType === 'haircut') {
+        // 基础剪发次数扣费
+        // 每次消费扣1次基础剪发次数
+        haircutCountToDeduct = transactionData.haircutCountToDeduct || 1
+        if (haircutCountBefore < haircutCountToDeduct) {
+          throw new Error('基础剪发次数不足')
+        }
+        haircutCountAfter = haircutCountBefore - haircutCountToDeduct
+        await dbManager.run('UPDATE members SET basic_haircut_count = ? WHERE id = ?', [
+          haircutCountAfter,
+          transactionData.memberId
+        ])
       }
 
-      // 更新会员余额
-      await dbManager.run('UPDATE members SET balance = ? WHERE id = ?', [
-        balanceAfter,
-        transactionData.memberId
-      ])
-
-      // 1. 获取操作员信息（如果存在）
+      // 获取操作员提成（只有money支付才计算提成）
       let commissionAmount = 0
-      if (transactionData.operatorId) {
-        // 2. 获取项目提成比例
+      if (paymentType === 'money' && transactionData.operatorId) {
         const projectCommission = await dbManager.get(
           'SELECT commission FROM project_commissions WHERE project_id = ? AND employee_id = ?',
           [transactionData.serviceId, transactionData.operatorId]
         )
         if (projectCommission && projectCommission.commission > 0) {
-          // 3. 计算提成金额
           commissionAmount = transactionData.amount * (projectCommission.commission / 100.0)
         }
       }
 
-      // 4. 创建交易记录
+      // 构建备注信息
+      let remark = transactionData.remark || ''
+      if (paymentType === 'haircut') {
+        remark = `抵扣${haircutCountToDeduct}次基础剪发` + (remark ? ` - ${remark}` : '')
+      }
+
+      // 创建交易记录
       const result = await dbManager.run(
-        'INSERT INTO transactions (member_id, service_id, amount, balance_before, balance_after, transaction_type, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO transactions (member_id, service_id, amount, balance_before, balance_after, transaction_type, payment_type, haircut_count_before, haircut_count_after, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           transactionData.memberId,
           transactionData.serviceId,
           transactionData.amount,
-          balanceBefore,
-          balanceAfter,
+          paymentType === 'money' ? balanceBefore : balanceBefore,
+          paymentType === 'money' ? balanceAfter : balanceBefore,
           '消费',
+          paymentType,
+          paymentType === 'haircut' ? haircutCountBefore : haircutCountBefore,
+          paymentType === 'haircut' ? haircutCountAfter : haircutCountBefore,
           transactionData.operatorId,
-          commissionAmount, // 保存计算好的提成
-          transactionData.remark
+          commissionAmount,
+          remark
         ]
       )
 
-      // 提交事务
-      await dbManager.run('COMMIT')
-
-      return { success: true, data: { id: result.id, balanceAfter } }
+      return {
+        success: true,
+        data: {
+          id: result.id,
+          balanceAfter: paymentType === 'money' ? balanceAfter : balanceBefore,
+          haircutCountAfter: paymentType === 'haircut' ? haircutCountAfter : haircutCountBefore
+        }
+      }
     } catch (error: any) {
-      // 回滚事务
-      await dbManager.run('ROLLBACK')
       return { success: false, error: error.message }
     }
   })
@@ -403,72 +462,95 @@ function registerRechargeHandles(): void {
   // 创建充值记录
   ipcMain.handle('create-recharge', async (_, rechargeData: any) => {
     try {
-      // 开始事务
-      await dbManager.run('BEGIN TRANSACTION')
-
-      // 获取会员当前余额
-      const member = await dbManager.get('SELECT balance FROM members WHERE id = ?', [
+      // 获取会员当前余额和基础剪发次数
+      const member = await dbManager.get('SELECT balance, basic_haircut_count FROM members WHERE id = ?', [
         rechargeData.memberId
       ])
       if (!member) {
         throw new Error('会员不存在')
       }
 
-      const balanceBefore = member.balance
-      const balanceAfter = balanceBefore + rechargeData.amount
+      const balanceBefore = member.balance || 0
+      const haircutCountBefore = member.basic_haircut_count || 0
+      const rechargeType = rechargeData.rechargeType || 'money'
 
-      // 更新会员余额
-      await dbManager.run('UPDATE members SET balance = ? WHERE id = ?', [
-        balanceAfter,
-        rechargeData.memberId
-      ])
+      let balanceAfter = balanceBefore
+      let haircutCountAfter = haircutCountBefore
 
-      // 1. 获取操作员信息和其充值提成比例
+      if (rechargeType === 'money') {
+        // 普通充值金额
+        balanceAfter = balanceBefore + rechargeData.amount
+        await dbManager.run('UPDATE members SET balance = ? WHERE id = ?', [
+          balanceAfter,
+          rechargeData.memberId
+        ])
+      } else if (rechargeType === 'haircut') {
+        // 充值抵基础剪发次数
+        haircutCountAfter = haircutCountBefore + (rechargeData.haircutCount || 0)
+        await dbManager.run('UPDATE members SET basic_haircut_count = ? WHERE id = ?', [
+          haircutCountAfter,
+          rechargeData.memberId
+        ])
+      }
+
+      // 获取操作员提成
       let commissionAmount = 0
       if (rechargeData.operatorId) {
         const operator = await dbManager.get('SELECT recharge_commission FROM employees WHERE id = ?', [rechargeData.operatorId])
         if (operator && operator.recharge_commission > 0) {
-          // 2. 计算提成金额
           commissionAmount = rechargeData.amount * (operator.recharge_commission / 100.0)
         }
       }
 
-      // 3. 创建充值记录
+      // 创建充值记录
       const result = await dbManager.run(
-        'INSERT INTO recharges (member_id, amount, payment_method, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO recharges (member_id, amount, recharge_type, haircut_count, payment_method, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [
           rechargeData.memberId,
           rechargeData.amount,
+          rechargeType,
+          rechargeType === 'haircut' ? (rechargeData.haircutCount || 0) : 0,
           rechargeData.paymentMethod,
           rechargeData.operatorId,
-          commissionAmount, // 保存计算好的提成
+          commissionAmount,
           rechargeData.remark
         ]
       )
 
-      // 创建余额变动记录
+      // 构建日志信息
+      let transactionRemark = rechargeData.remark || ''
+      if (rechargeType === 'haircut') {
+        transactionRemark = `充值${rechargeData.amount}元，抵${rechargeData.haircutCount}次基础剪发` + (transactionRemark ? ` - ${transactionRemark}` : '')
+      }
+
+      // 创建余额/次数变动记录
       await dbManager.run(
-        'INSERT INTO transactions (member_id, service_id, amount, balance_before, balance_after, transaction_type, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO transactions (member_id, service_id, amount, balance_before, balance_after, transaction_type, payment_type, haircut_count_before, haircut_count_after, operator_id, commission_amount, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           rechargeData.memberId,
-          0, // service_id 为 0 表示非服务项目，即充值
+          0,
           rechargeData.amount,
           balanceBefore,
-          balanceAfter,
+          rechargeType === 'money' ? balanceAfter : balanceBefore,
           '充值',
+          rechargeType,
+          haircutCountBefore,
+          rechargeType === 'haircut' ? haircutCountAfter : haircutCountBefore,
           rechargeData.operatorId,
-          0, // 充值操作在 transaction 表中的提成记为0，真实提成在 recharges 表中
-          rechargeData.remark
+          0,
+          transactionRemark
         ]
       )
 
-      // 提交事务
-      await dbManager.run('COMMIT')
-
-      return { success: true, data: { id: result.id, balanceAfter } }
+      return {
+        success: true,
+        data: {
+          id: result.id,
+          balanceAfter: rechargeType === 'money' ? balanceAfter : balanceBefore,
+          haircutCountAfter: rechargeType === 'haircut' ? haircutCountAfter : haircutCountBefore
+        }
+      }
     } catch (error: any) {
-      // 回滚事务
-      await dbManager.run('ROLLBACK')
       return { success: false, error: error.message }
     }
   })
@@ -782,6 +864,72 @@ function registerDataHandles(): void {
       return { success: false, error: error.message };
     }
   });
+
+  // 获取自动备份配置
+  ipcMain.handle('get-auto-backup-config', async () => {
+    try {
+      const enabled = await dbManager.getSetting('autoBackupEnabled') || 'false'
+      const interval = await dbManager.getSetting('autoBackupInterval') || '30'
+      const retainDays = await dbManager.getSetting('autoBackupRetainDays') || '30'
+      return {
+        success: true,
+        data: {
+          enabled: enabled === 'true',
+          interval: parseInt(interval),
+          retainDays: parseInt(retainDays)
+        }
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  });
+
+  // 保存自动备份配置
+  ipcMain.handle('save-auto-backup-config', async (_, config: { enabled: boolean, interval: number, retainDays: number }) => {
+    try {
+      await dbManager.setSetting('autoBackupEnabled', config.enabled ? 'true' : 'false')
+      await dbManager.setSetting('autoBackupInterval', config.interval.toString())
+      await dbManager.setSetting('autoBackupRetainDays', config.retainDays.toString())
+      // 重新设置定时器
+      await setupAutoBackup()
+      return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  });
+
+  // 清理过期备份
+  ipcMain.handle('cleanup-old-backups', async (_, retainDays: number) => {
+    try {
+      const fs = require('fs')
+      const { app } = require('electron')
+      const userDataPath = app.getPath('userData')
+      const backupDir = path.join(userDataPath, 'backups')
+
+      if (!fs.existsSync(backupDir)) {
+        return { success: true, data: { deleted: 0 } }
+      }
+
+      const cutoffDate = new Date()
+      cutoffDate.setDate(cutoffDate.getDate() - retainDays)
+
+      const files = fs.readdirSync(backupDir).filter((file: string) => file.endsWith('.db'))
+      let deletedCount = 0
+
+      for (const file of files) {
+        const filePath = path.join(backupDir, file)
+        const stats = fs.statSync(filePath)
+        if (new Date(stats.mtime) < cutoffDate) {
+          fs.unlinkSync(filePath)
+          deletedCount++
+        }
+      }
+
+      return { success: true, data: { deleted: deletedCount } }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  });
 }
 
 /**
@@ -887,6 +1035,53 @@ function registerNotificationHandles(): void {
       return { success: true }
     } catch (error: any) {
       return { success: false, error: (error as Error).message }
+    }
+  })
+}
+
+/**
+ * 系统设置IPC处理器
+ */
+function registerSettingHandles(): void {
+  // 获取所有设置
+  ipcMain.handle('get-settings', async () => {
+    try {
+      const settings = await dbManager.getAllSettings()
+      return { success: true, data: settings }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // 保存设置
+  ipcMain.handle('save-settings', async (_, settings: Record<string, string>) => {
+    try {
+      for (const [key, value] of Object.entries(settings)) {
+        await dbManager.setSetting(key, value)
+      }
+      return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // 获取单个设置
+  ipcMain.handle('get-setting', async (_, key: string) => {
+    try {
+      const value = await dbManager.getSetting(key)
+      return { success: true, data: value }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // 保存单个设置
+  ipcMain.handle('set-setting', async (_, key: string, value: string) => {
+    try {
+      await dbManager.setSetting(key, value)
+      return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message }
     }
   })
 }

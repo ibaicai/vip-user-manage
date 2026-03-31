@@ -15,6 +15,29 @@ const { Sider } = Layout
 
 const Sidebar: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState('/')
+  const [shopName, setShopName] = useState('貔貅会员管理')
+
+  // 加载店铺名称
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const result = await window.electronAPI.getSettings()
+        if (result.success && result.data?.shopName) {
+          setShopName(result.data.shopName)
+        }
+      } catch (error) {
+        console.error('加载设置失败:', error)
+      }
+    }
+    loadSettings()
+
+    // 监听设置更新事件
+    const handleSettingsUpdate = () => {
+      loadSettings()
+    }
+    window.addEventListener('settingsUpdate', handleSettingsUpdate)
+    return () => window.removeEventListener('settingsUpdate', handleSettingsUpdate)
+  }, [])
 
   // 在组件挂载时根据当前路径设置选中的菜单项
   useEffect(() => {
@@ -107,7 +130,7 @@ const Sidebar: React.FC = () => {
     <Sider width={200} className="app-sidebar">
       <div className="sidebar-logo">
         <img src={logo} alt="" width={80} />
-        <h2>貔貅会员管理</h2>
+        <h2>{shopName}</h2>
       </div>
       <Menu
         mode="inline"

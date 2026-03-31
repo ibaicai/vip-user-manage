@@ -11,6 +11,7 @@ interface Member {
   phone: string
   level: string
   balance: number
+  basic_haircut_count: number
   status: string
 }
 
@@ -32,6 +33,7 @@ const Recharge: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [form] = Form.useForm()
   const [employees, setEmployees] = useState<any[]>([])
+  const [defaultOperatorId, setDefaultOperatorId] = useState<number | null>(null)
 
   useEffect(() => {
     loadMembers()
@@ -40,6 +42,12 @@ const Recharge: React.FC = () => {
       const result = await window.electronAPI.getEmployees()
       if (result.success && result.data) {
         setEmployees(result.data)
+        // 默认选择第一个员工
+        if (result.data.length > 0) {
+          const defaultId = result.data[0].id
+          setDefaultOperatorId(defaultId)
+          form.setFieldsValue({ operator: defaultId })
+        }
       }
     }
     fetchEmployees()
@@ -49,7 +57,19 @@ const Recharge: React.FC = () => {
     try {
       const result = await window.electronAPI.getMembers()
       if (result.success && result.data) {
-        setMembers(result.data.filter((m: Member) => m.status === '正常'))
+        const filteredMembers = result.data.filter((m: Member) => m.status === '正常')
+        setMembers(filteredMembers)
+
+        // 检查 URL 参数，自动选中会员
+        const params = new URLSearchParams(window.location.search)
+        const memberId = params.get('memberId')
+        if (memberId) {
+          const member = filteredMembers.find((m: Member) => m.id === Number(memberId))
+          if (member) {
+            setSelectedMember(member)
+            form.setFieldsValue({ memberId: member.id })
+          }
+        }
       } else {
         toast.error('加载会员数据失败')
       }
@@ -90,15 +110,26 @@ const Recharge: React.FC = () => {
         return
       }
 
-      if (values.amount <= 0) {
+      const accountType = values.accountType || 'balance'
+
+      if (accountType === 'balance' && (!values.amount || values.amount <= 0)) {
         toast.error('充值金额必须大于0')
         return
       }
 
+      if (accountType === 'haircut' && (!values.haircutCount || values.haircutCount <= 0)) {
+        toast.error('剪发次数必须大于0')
+        return
+      }
+
       setLoading(true)
+      // 将accountType映射为API需要的rechargeType
+      const apiRechargeType = accountType === 'balance' ? 'money' : 'haircut'
       const result = await window.electronAPI.createRecharge({
         memberId: selectedMember.id,
-        amount: values.amount,
+        amount: accountType === 'balance' ? values.amount : 0,
+        rechargeType: apiRechargeType,
+        haircutCount: accountType === 'haircut' ? values.haircutCount : 0,
         paymentMethod: values.paymentMethod || '现金',
         operatorId: values.operator,
         remark: values.remark || ''
@@ -107,6 +138,7 @@ const Recharge: React.FC = () => {
       if (result.success) {
         toast.success('充值成功')
         form.resetFields()
+        form.setFieldsValue({ accountType: 'haircut', operator: defaultOperatorId })
         setSelectedMember(null)
         loadMembers() // 重新加载数据以更新余额
         // loadRechargeRecords() // 重新加载充值记录
@@ -134,7 +166,8 @@ const Recharge: React.FC = () => {
               onFinish={handleSubmit}
               initialValues={{
                 paymentMethod: '现金',
-                operator: ''
+                operator: '',
+                accountType: 'haircut'
               }}
             >
               <Form.Item
@@ -151,7 +184,7 @@ const Recharge: React.FC = () => {
                 >
                   {members.map((member) => (
                     <Option key={member.id} value={member.id}>
-                      {member.name} ({member.phone}) - 余额: ¥{member.balance.toFixed(2)}
+                      {member.name} ({member.phone}) - 余额: ¥{member.balance.toFixed(2)} - 剪发次数: {member.basic_haircut_count || 0}次
                     </Option>
                   ))}
                 </Select>
@@ -171,7 +204,57 @@ const Recharge: React.FC = () => {
                   precision={2}
                   style={{ width: '100%' }}
                   addonAfter="元"
+                  onChange={() => {
+                    // 选择金额后自动选中到账类型
+                    if (!form.getFieldValue('accountType')) {
+                      form.setFieldsValue({ accountType: 'haircut' })
+                    }
+                  }}
                 />
+              </Form.Item>
+
+              <Form.Item
+                name="accountType"
+                label="到账类型"
+                initialValue="haircut"
+              >
+                <Select onChange={(value) => {
+                  if (value === 'haircut') {
+                    form.setFieldsValue({ haircutCount: 1 })
+                  } else {
+                    form.setFieldsValue({ haircutCount: undefined })
+                  }
+                }}>
+                  <Option value="balance">余额</Option>
+                  <Option value="haircut">剪发次数</Option>
+                </Select>
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, curr) => prev.accountType !== curr.accountType}
+              >
+                {() => {
+                  const accountType = form.getFieldValue('accountType')
+                  if (accountType === 'haircut') {
+                    return (
+                      <Form.Item
+                        name="haircutCount"
+                        label="剪发次数"
+                        rules={[{ required: true, message: '请输入剪发次数' }]}
+                      >
+                        <InputNumber
+                          placeholder="请输入剪发次数"
+                          min={1}
+                          precision={0}
+                          style={{ width: '100%' }}
+                          addonAfter="次"
+                        />
+                      </Form.Item>
+                    )
+                  }
+                  return null
+                }}
               </Form.Item>
 
               <Form.Item

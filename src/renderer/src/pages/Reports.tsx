@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Row, Col, Statistic, Table, DatePicker, Button, Tabs, Progress } from 'antd'
-import { UserOutlined, WalletOutlined, ShoppingOutlined, DownloadOutlined } from '@ant-design/icons'
+import { UserOutlined, WalletOutlined, ShoppingOutlined, DownloadOutlined, TrophyOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { toast } from '../components/Toast'
 
@@ -50,6 +50,15 @@ interface Recharge {
   remark: string
 }
 
+interface RankingItem {
+  key: number
+  rank: number
+  member_name: string
+  member_phone: string
+  total_amount: number
+  count: number
+}
+
 const Reports: React.FC = () => {
   const [statistics, setStatistics] = useState<Statistics | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -61,6 +70,8 @@ const Reports: React.FC = () => {
   ])
   const [activeTab, setActiveTab] = useState('summary')
   const [employeeCommissionData, setEmployeeCommissionData] = useState<any[]>([])
+  const [rechargeRanking, setRechargeRanking] = useState<RankingItem[]>([])
+  const [consumptionRanking, setConsumptionRanking] = useState<RankingItem[]>([])
 
   useEffect(() => {
     loadData()
@@ -100,6 +111,51 @@ const Reports: React.FC = () => {
 
       if (rechargeResult.success) {
         setRecharges(rechargeResult.data as Recharge[])
+
+        // 计算充值排名
+        const rechargeMap = new Map<string, { member_name: string; member_phone: string; total: number; count: number }>()
+        for (const r of (rechargeResult.data as Recharge[])) {
+          const key = r.member_name + r.member_phone
+          const existing = rechargeMap.get(key) || { member_name: r.member_name, member_phone: r.member_phone, total: 0, count: 0 }
+          existing.total += r.amount
+          existing.count += 1
+          rechargeMap.set(key, existing)
+        }
+        const sortedRecharge = Array.from(rechargeMap.values())
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10)
+        setRechargeRanking(sortedRecharge.map((item, index) => ({
+          key: index,
+          rank: index + 1,
+          member_name: item.member_name,
+          member_phone: item.member_phone,
+          total_amount: item.total,
+          count: item.count
+        })))
+
+        // 计算消费排名
+        const consumptionMap = new Map<string, { member_name: string; member_phone: string; total: number; count: number }>()
+        const transData = transResult.data as Transaction[]
+        for (const t of transData) {
+          if (t.transaction_type === '消费') {
+            const key = t.member_name + t.member_phone
+            const existing = consumptionMap.get(key) || { member_name: t.member_name, member_phone: t.member_phone, total: 0, count: 0 }
+            existing.total += t.amount
+            existing.count += 1
+            consumptionMap.set(key, existing)
+          }
+        }
+        const sortedConsumption = Array.from(consumptionMap.values())
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10)
+        setConsumptionRanking(sortedConsumption.map((item, index) => ({
+          key: index,
+          rank: index + 1,
+          member_name: item.member_name,
+          member_phone: item.member_phone,
+          total_amount: item.total,
+          count: item.count
+        })))
       }
     } catch (error) {
       toast.error('加载数据失败')
@@ -139,42 +195,62 @@ const Reports: React.FC = () => {
       title: '会员姓名',
       dataIndex: 'member_name',
       key: 'member_name',
-      width: 100
+      width: 90
     },
     {
       title: '手机号',
       dataIndex: 'member_phone',
       key: 'member_phone',
-      width: 120
+      width: 110
     },
     {
       title: '服务项目',
       dataIndex: 'service_name',
       key: 'service_name',
-      width: 120
+      width: 100
     },
     {
       title: '金额',
       dataIndex: 'amount',
       key: 'amount',
-      width: 100,
-      render: (amount: number) => `¥${amount.toFixed(2)}`
+      width: 80,
+      render: (amount: number) => amount != null ? `¥${amount.toFixed(2)}` : '-'
     },
     {
       title: '类型',
       dataIndex: 'transaction_type',
       key: 'transaction_type',
-      width: 80,
+      width: 70,
       render: (type: string) => (
         <span style={{ color: type === '消费' ? '#ff4d4f' : '#52c41a' }}>{type}</span>
       )
     },
     {
+      title: '扣费方式',
+      dataIndex: 'payment_type',
+      key: 'payment_type',
+      width: 100,
+      render: (type: string, record: any) => {
+        if (type === 'haircut') {
+          const count = (record.haircut_count_after || 0) - (record.haircut_count_before || 0)
+          return `剪发次数${count}次`
+        }
+        if (type === 'money') return '余额'
+        return '-'
+      }
+    },
+    {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 150,
+      width: 140,
       render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm')
+    },
+    {
+      title: '操作员',
+      dataIndex: 'operator_name',
+      key: 'operator_name',
+      width: 80
     },
     {
       title: '备注',
@@ -228,6 +304,41 @@ const Reports: React.FC = () => {
       dataIndex: 'remark',
       key: 'remark',
       ellipsis: true
+    }
+  ]
+
+  const rankingColumns = [
+    {
+      title: '排名',
+      dataIndex: 'rank',
+      key: 'rank',
+      width: 60,
+      render: (rank: number) => (
+        <span style={{ fontWeight: 'bold', color: rank <= 3 ? '#faad14' : '#666' }}>
+          {rank <= 3 ? `🏅${rank}` : rank}
+        </span>
+      )
+    },
+    {
+      title: '会员姓名',
+      dataIndex: 'member_name',
+      key: 'member_name'
+    },
+    {
+      title: '手机号',
+      dataIndex: 'member_phone',
+      key: 'member_phone'
+    },
+    {
+      title: '总金额',
+      dataIndex: 'total_amount',
+      key: 'total_amount',
+      render: (amount: number) => `¥${amount.toFixed(2)}`
+    },
+    {
+      title: '次数',
+      dataIndex: 'count',
+      key: 'count'
     }
   ]
 
@@ -423,6 +534,31 @@ const Reports: React.FC = () => {
             rowKey="employee_id"
             bordered
           />
+        </TabPane>
+
+        <TabPane tab="排行榜" key="ranking">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={12}>
+              <Card title={<><TrophyOutlined /> 充值排行榜</>}>
+                <Table
+                  columns={rankingColumns}
+                  dataSource={rechargeRanking}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card title={<><ShoppingOutlined /> 消费排行榜</>}>
+                <Table
+                  columns={rankingColumns}
+                  dataSource={consumptionRanking}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+          </Row>
         </TabPane>
       </Tabs>
     </div>

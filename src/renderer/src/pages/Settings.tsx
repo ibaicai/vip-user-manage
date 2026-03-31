@@ -12,10 +12,12 @@ import {
   Modal,
   Table,
   Popconfirm,
-  Tooltip
+  Tooltip,
+  Switch,
+  InputNumber
 } from 'antd'
 import {
-  // SaveOutlined,
+  SaveOutlined,
   DownloadOutlined,
   UploadOutlined,
   DeleteOutlined,
@@ -42,10 +44,56 @@ const Settings: React.FC = () => {
   const [backupModalVisible, setBackupModalVisible] = useState(false)
   // const [restoreModalVisible, setRestoreModalVisible] = useState(false)
   const [form] = Form.useForm()
+  const [settingsForm] = Form.useForm()
+  const [passwordForm] = Form.useForm()
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  // 自动备份配置
+  const [autoBackupConfig, setAutoBackupConfig] = useState({
+    enabled: false,
+    interval: 30,
+    retainDays: 30
+  })
+  const [autoBackupLoading, setAutoBackupLoading] = useState(false)
 
   useEffect(() => {
     loadBackupFiles()
+    loadSettings()
+    loadAutoBackupConfig()
   }, [])
+
+  const loadSettings = async () => {
+    try {
+      const result = await window.electronAPI.getSettings()
+      if (result.success && result.data) {
+        form.setFieldsValue({
+          shopName: result.data.shopName || '貔貅会员管理'
+        })
+      }
+    } catch (error) {
+      console.error('加载设置失败:', error)
+    }
+  }
+
+  const handleSaveSettings = async () => {
+    try {
+      const values = await settingsForm.validateFields()
+      setSettingsLoading(true)
+
+      const result = await window.electronAPI.setSetting('shopName', values.shopName)
+      if (result.success) {
+        toast.success('设置保存成功')
+        // 触发设置更新事件
+        window.dispatchEvent(new CustomEvent('settingsUpdate'))
+      } else {
+        toast.error(result.error || '保存失败')
+      }
+    } catch (error) {
+      console.error('保存设置失败:', error)
+      toast.error('保存设置失败')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
 
   const loadBackupFiles = async () => {
     try {
@@ -56,6 +104,36 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.error('加载备份文件失败:', error)
       toast.error('加载备份文件失败')
+    }
+  }
+
+  const loadAutoBackupConfig = async () => {
+    try {
+      const result = await window.electronAPI.getAutoBackupConfig()
+      if (result.success && result.data) {
+        setAutoBackupConfig(result.data)
+      }
+    } catch (error) {
+      console.error('加载自动备份配置失败:', error)
+    }
+  }
+
+  const handleSaveAutoBackupConfig = async () => {
+    try {
+      setAutoBackupLoading(true)
+      const result = await window.electronAPI.saveAutoBackupConfig(autoBackupConfig)
+      if (result.success) {
+        toast.success('自动备份配置保存成功')
+        // 清理过期备份
+        await window.electronAPI.cleanupOldBackups(autoBackupConfig.retainDays)
+      } else {
+        toast.error(result.error || '保存失败')
+      }
+    } catch (error) {
+      console.error('保存自动备份配置失败:', error)
+      toast.error('保存自动备份配置失败')
+    } finally {
+      setAutoBackupLoading(false)
     }
   }
 
@@ -344,9 +422,38 @@ const Settings: React.FC = () => {
             </Form>
           </Card>
         </Col> */}
-        <Col xs={24} lg={16}>
-          <Card title="修改登录密码" style={{ maxWidth: 400, marginTop: 24 }}>
-            <Form form={form} onFinish={onFinish}>
+        <Col xs={24} lg={12}>
+          <Card title="基本设置">
+            <Form
+              form={settingsForm}
+              layout="vertical"
+              initialValues={{
+                shopName: '貔貅会员管理'
+              }}
+            >
+              <Form.Item
+                name="shopName"
+                label="店铺名称"
+                rules={[{ required: true, message: '请输入店铺名称' }]}
+              >
+                <Input placeholder="请输入店铺名称" />
+              </Form.Item>
+
+              <Form.Item>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={handleSaveSettings}
+                  loading={settingsLoading}
+                >
+                  保存设置
+                </Button>
+              </Form.Item>
+            </Form>
+          </Card>
+
+          <Card title="修改登录密码" style={{ marginTop: 16 }}>
+            <Form form={passwordForm} onFinish={onFinish}>
               <Form.Item
                 label="原密码"
                 name="oldPassword"
@@ -377,7 +484,7 @@ const Settings: React.FC = () => {
           </Card>
         </Col>
 
-        <Col xs={24} lg={8}>
+        <Col xs={24} lg={12}>
           <Card title="数据管理">
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
               <Button
@@ -405,6 +512,57 @@ const Settings: React.FC = () => {
                   </Button>
                 </Col>
               </Row>
+
+              <Divider />
+
+              <div>
+                <Space align="center" style={{ marginBottom: 12 }}>
+                  <strong>自动备份</strong>
+                  <Switch
+                    checked={autoBackupConfig.enabled}
+                    onChange={(checked) => setAutoBackupConfig({ ...autoBackupConfig, enabled: checked })}
+                  />
+                </Space>
+                {autoBackupConfig.enabled && (
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <div>
+                      <span>备份间隔：</span>
+                      <InputNumber
+                        value={autoBackupConfig.interval}
+                        onChange={(value) => setAutoBackupConfig({ ...autoBackupConfig, interval: value || 30 })}
+                        min={1}
+                        max={1440}
+                        style={{ width: 80, marginLeft: 8 }}
+                      />
+                      <span style={{ marginLeft: 8 }}>分钟</span>
+                    </div>
+                    <div>
+                      <span>保留天数：</span>
+                      <InputNumber
+                        value={autoBackupConfig.retainDays}
+                        onChange={(value) => setAutoBackupConfig({ ...autoBackupConfig, retainDays: value || 30 })}
+                        min={1}
+                        max={365}
+                        style={{ width: 80, marginLeft: 8 }}
+                      />
+                      <span style={{ marginLeft: 8 }}>天</span>
+                    </div>
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={handleSaveAutoBackupConfig}
+                      loading={autoBackupLoading}
+                    >
+                      保存配置
+                    </Button>
+                  </Space>
+                )}
+                {!autoBackupConfig.enabled && (
+                  <p style={{ color: '#888', fontSize: 12 }}>
+                    关闭自动备份后，系统将不再定期备份数据库。
+                  </p>
+                )}
+              </div>
             </Space>
 
             <Divider />

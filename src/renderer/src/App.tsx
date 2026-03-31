@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Layout, Button } from 'antd'
 import Sidebar from './components/Sidebar'
+import AppHeader from './components/AppHeader'
 import Dashboard from './pages/Dashboard'
 import MemberManagement from './pages/MemberManagement'
 import ServiceManagement from './pages/ServiceManagement'
@@ -125,7 +126,7 @@ function App(): React.JSX.Element {
 
   return (
     <Layout className="app-layout">
-      {/* <AppHeader /> */}
+      <AppHeader />
       <Layout>
         <Sidebar />
         <Content className="app-content">
