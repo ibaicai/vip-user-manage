@@ -1,185 +1,112 @@
-# 理发店会员消费管理系统
+# MemberLite - 理发店会员消费管理系统
 
-## 项目概述
-会员消费管理系统是一个基于Electron-Vite开发的桌面应用程序，专为小门店设计，用于管理会员信息、会员余额和消费记录。系统采用单机运行模式，所有数据本地存储，确保数据安全和隐私保护。
+<div align="center">
 
-## 快速上手
+[![Electron](https://img.shields.io/badge/Electron-%231788FF.svg?style=flat&logo=electron)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-%2320232a.svg?style=flat&logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=flat&logo=typescript)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/IfFaith/MemberLite)](https://github.com/IfFaith/MemberLite/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/IfFaith/MemberLite)
+
+</div>
+
+> 基于 Electron + Vite 开发的桌面应用程序，专为小门店设计，用于管理会员信息、会员余额和消费记录。
+
+## 功能特性
+
+| 模块 | 功能 |
+|------|------|
+| **会员管理** | 会员信息录入、查询筛选、状态管理、导出 |
+| **余额管理** | 会员充值、余额查询、消费扣费、余额提醒 |
+| **服务项目** | 服务配置、会员等级价格、启用/禁用 |
+| **消费记录** | 消费统计、报表生成、趋势分析 |
+| **员工管理** | 员工信息、分红设置 |
+| **系统设置** | 店铺信息、数据备份、密码修改 |
+
+## 快速开始
 
 ### 环境要求
-- Node.js 16.0 或更高版本
-- npm 或 yarn 包管理器
 
-### 安装和运行
+- Node.js 16+
+- npm 或 pnpm
 
-1. **克隆项目**
-   ```bash
-   git clone [项目地址]
-   cd electron
-   ```
+### 安装运行
 
-2. **安装依赖**
-   ```bash
-   npm install
-   ```
+```bash
+# 克隆项目
+git clone https://github.com/IfFaith/MemberLite.git
+cd MemberLite
 
-3. **开发模式运行**
-   ```bash
-   npm run dev
-   ```
+# 安装依赖
+pnpm install
 
-4. **打包应用**
-   ```bash
-   npm run build
-   npm run dist
-   ```
+# 开发模式
+pnpm dev
+
+# 打包应用
+pnpm build
+pnpm dist
+```
 
 ### 首次使用
 
 1. **登录系统**
-   - 默认账号：`admin`
-   - 默认密码：`123456`
-   - 可在系统设置中修改密码
+   - 账号：`admin`
+   - 密码：`123456`
 
 2. **基础配置**
-   - 进入"系统设置"页面
-   - 配置店铺信息
-   - 添加服务项目（如：剪发、染发、护理等）
+   - 进入「系统设置」配置店铺信息
+   - 添加服务项目（剪发、染发、护理等）
 
-3. **开始使用**
-   - 添加会员信息
-   - 为会员充值
-   - 记录消费扣费
+## 技术栈
 
-## 功能模块
+<div align="center">
 
-### 1. 会员管理 ✅
-- 会员信息录入（姓名、手机号、等级等）
-- 会员信息查询和筛选
-- 会员状态管理（正常、暂停、注销）
-- 会员信息导出
+| 层级 | 技术 |
+|------|------|
+| 框架 | Electron + Vite |
+| 前端 | React + Ant Design |
+| 语言 | TypeScript |
+| 数据库 | SQLite（本地存储） |
+| 打包 | electron-builder |
 
-### 2. 余额管理 ✅
-- 会员充值功能
-- 余额查询和变动记录
-- 消费自动扣费
-- 余额不足提醒
+</div>
 
-### 3. 服务项目管理 ✅
-- 服务项目配置（名称、价格、分类）
-- 不同会员等级的价格设置
-- 服务状态管理（启用/禁用）
+## 项目结构
 
-### 4. 消费记录 ✅
-- 消费记录查询和统计
-- 消费报表生成
-- 消费记录导出
-- 消费趋势分析
-
-### 5. 系统管理 ✅
-- 店铺信息设置
-- 数据备份恢复
-- 登录密码修改
-- 系统参数配置
-
-## 技术架构
-
-### 技术栈
-- **前端框架**: Electron + Vite
-- **UI框架**: React + Ant Design
-- **数据库**: SQLite（本地存储）
-- **开发语言**: TypeScript
-
-### 项目结构
 ```
 src/
 ├── main/                 # 主进程
-│   ├── index.ts         # 主进程入口
-│   ├── database.ts      # 数据库管理
-│   └── handles.ts       # IPC处理器
+│   ├── index.ts         # 入口文件
+│   ├── database.ts     # 数据库管理
+│   └── handles.ts      # IPC 处理器
 ├── preload/             # 预加载脚本
-│   └── index.ts         # API暴露
+│   └── index.ts         # API 暴露
 └── renderer/            # 渲染进程
-    ├── src/
-    │   ├── components/  # 组件
-    │   ├── pages/       # 页面
-    │   ├── types/       # 类型定义
-    │   ├── App.tsx      # 主应用
-    │   └── App.scss     # 样式文件
-    └── index.html       # HTML模板
+    └── src/
+        ├── components/  # 公共组件
+        ├── pages/       # 页面组件
+        ├── types/       # 类型定义
+        ├── assets/      # 静态资源
+        └── App.tsx      # 应用入口
 ```
-
-## 使用说明
-
-### 主要操作流程
-
-1. **会员注册**
-   - 进入"会员管理"页面
-   - 点击"新增会员"
-   - 填写会员信息（姓名、手机号必填）
-   - 保存会员信息
-
-2. **会员充值**
-   - 进入"会员充值"页面
-   - 选择会员（可通过姓名或手机号搜索）
-   - 输入充值金额
-   - 选择支付方式
-   - 确认充值
-
-3. **消费扣费**
-   - 进入"消费扣费"页面
-   - 选择会员
-   - 选择服务项目
-   - 系统自动计算价格（根据会员等级）
-   - 确认扣费
-
-4. **查询统计**
-   - 进入"统计报表"页面
-   - 选择时间范围
-   - 查看消费统计、会员分析等数据
-
-### 功能特点
-
-- **会员管理**: 支持会员信息的增删改查，支持按姓名、手机号、等级、状态筛选
-- **服务管理**: 支持不同会员等级的价格设置，支持服务项目的启用/禁用
-- **消费扣费**: 自动根据会员等级计算价格，支持余额不足提醒
-- **会员充值**: 支持多种支付方式，自动更新会员余额
-- **统计报表**: 支持按时间范围查询统计数据，包含消费记录和充值记录
-- **系统设置**: 支持店铺信息配置、数据管理和密码修改
-
-## 技术特点
-
-- **单机运行**: 无需网络连接，数据本地存储
-- **数据安全**: SQLite数据库，数据加密存储
-- **界面友好**: 现代化UI设计，操作简单直观
-- **功能完整**: 覆盖理发店会员管理的所有需求
-- **扩展性强**: 模块化设计，便于功能扩展
 
 ## 注意事项
 
-1. **数据备份**: 定期备份数据库文件，防止数据丢失
-2. **系统更新**: 及时更新系统版本，获得最新功能
-3. **数据安全**: 注意数据安全和隐私保护
-4. **数据清理**: 建议定期清理历史数据，保持系统性能
-
-## 常见问题
-
-### Q: 如何备份数据？
-A: 在系统设置页面，点击"数据备份"功能，选择备份位置即可。
-
-### Q: 如何修改窗口图标？
-A: 替换 `resources/icon.png` 文件，重新打包应用即可。
-
-### Q: 如何修改安装包图标？
-A: 将图标转换为 `.ico` 格式，放在 `resources/icon.ico`，在 `electron-builder.yml` 中配置 `win.icon: resources/icon.ico`。
+- 数据本地存储，定期备份数据库文件
+- 替换 `resources/icon.png` 可自定义窗口图标
+- 将图标转换为 `.ico` 格式可自定义安装包图标
 
 ## 开发团队
 
-lixp
+[lixp](https://github.com/IfFaith)
 
-https://github.com/IfFaith
+## 许可证
+
+[MIT](LICENSE)
 
 ## 联系方式
 
-https://github.com/IfFaith
-
-13283029823@163.com
+- GitHub: https://github.com/IfFaith
+- Email: 13283029823@163.com
